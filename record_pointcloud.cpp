@@ -69,6 +69,7 @@ int main() {
     stereo->depth.link(pointcloud->inputDepth);
     auto queue = pointcloud->outputPointCloud.createOutputQueue();
     auto rgbdPclQueue = rgbd->pcl.createOutputQueue();
+    auto colorQueue = color->requestOutput(std::make_pair(640, 400))->createOutputQueue();
 
     remoteConnector.addTopic("pcl", rgbd->pcl);
     pipeline.start();
@@ -89,6 +90,7 @@ int main() {
         }
         else if (key == 'r') 
         {
+            auto image = colorQueue->get<dai::ImgFrame>();
             auto pcl = queue->get<dai::PointCloudData>();
             //auto pcl = rgbdPclQueue->get<dai::PointCloudData>();
             if (pcl == nullptr)
@@ -113,6 +115,10 @@ int main() {
             oss << std::setw(3) << std::setfill('0') << savedFileIndex;
             std::string result = oss.str();
             std::string fileName = "recordedPC_" + result + ".ply";
+            std::string fileNameImage = "recordedPC_" + result + ".jpg";
+
+            // Save the corresponding image
+            cv::imwrite(fileNameImage, image->getCvFrame());
 
             // Save the point cloud
             if (open3d::io::WritePointCloud(fileName, pcl3D))
