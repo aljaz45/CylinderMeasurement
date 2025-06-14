@@ -2,8 +2,10 @@
 #include <depthai/remote_connection/RemoteConnection.hpp>
 #include <iostream>
 
-#include <open3d/Open3D.h>
 #include "depthai/depthai.hpp"
+#include <pcl/point_types.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/io/pcd_io.h>
 
 // Upgraded visualizer_rgbd.cpp example, with added functionality of recording
 // point cloud data and storing it to a file
@@ -65,7 +67,6 @@ int main() {
     }
 
     // Point cloud
-    pointcloud->initialConfig->setSparse(true);
     stereo->depth.link(pointcloud->inputDepth);
     auto queue = pointcloud->outputPointCloud.createOutputQueue();
     auto rgbdPclQueue = rgbd->pcl.createOutputQueue();
@@ -96,32 +97,28 @@ int main() {
             if (pcl == nullptr)
                 continue;
 
-            // Convert to Eigen::Vector3d   TO DO: Probably a better way to do this ...
-            std::vector<Eigen::Vector3d> convertedPoints;
-            convertedPoints.reserve(pcl->getPoints().size());
+            // Fill the cloud ...   TO DO: Probably a better way to do this ...
+            pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+            cloud->width = pcl->getWidth();
+            cloud->height = pcl->getHeight();
+            cloud->points.reserve(pcl->getPoints().size());
             for (const auto& point : pcl->getPoints()) 
-            {
-                convertedPoints.emplace_back(static_cast<double>(point.x),
-                                             static_cast<double>(point.y),
-                                             static_cast<double>(point.z));
-            }
+                cloud->points.emplace_back(point.x, point.y, point.z);
     
-            // Create Open3D point cloud and assign converted points to it
-            open3d::geometry::PointCloud pcl3D;
-            pcl3D.points_ = convertedPoints;
-
             // Define the file name
             std::ostringstream oss;
             oss << std::setw(3) << std::setfill('0') << savedFileIndex;
             std::string result = oss.str();
-            std::string fileName = "recordedPC_" + result + ".ply";
+            std::string fileName = "recordedPC_" + result;
+            std::string fileNamePLY = "recordedPC_" + result + ".ply";
+            std::string fileNamePCD = "recordedPC_" + result + ".pcd";
             std::string fileNameImage = "recordedPC_" + result + ".jpg";
 
             // Save the corresponding image
             cv::imwrite(fileNameImage, image->getCvFrame());
 
             // Save the point cloud
-            if (open3d::io::WritePointCloud(fileName, pcl3D))
+            if (pcl::io::savePLYFile(fileNamePLY, *cloud) != -1 && pcl::io::savePCDFile(fileNamePCD, *cloud) != -1)
             {
                 std::cout << "Successfully saved the current PC to a file: " << fileName << std::endl;
                 ++savedFileIndex;
