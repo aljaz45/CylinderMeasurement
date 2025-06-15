@@ -7,7 +7,7 @@
 #include <pcl/io/ply_io.h>
 #include <pcl/io/pcd_io.h>
 
-// Upgraded visualizer_rgbd.cpp example, with added functionality of recording
+// Expanded visualizer_rgbd.cpp example, with added functionality of recording
 // point cloud data and storing it to a file
 
 // Signal handling for clean shutdown

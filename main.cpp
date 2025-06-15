@@ -48,31 +48,29 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
 
-typedef pcl::PointXYZ PointT;
-
 int main ()
 {
   // All the objects needed
   pcl::PCDReader reader;
-  pcl::PassThrough<PointT> pass;
-  pcl::NormalEstimation<PointT, pcl::Normal> ne;
-  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg; 
+  pcl::PassThrough<pcl::PointXYZ> pass;
+  pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
+  pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> seg; 
   pcl::PLYWriter writer;
-  pcl::ExtractIndices<PointT> extract;
+  pcl::ExtractIndices<pcl::PointXYZ> extract;
   pcl::ExtractIndices<pcl::Normal> extract_normals;
-  pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
+  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
 
   // Datasets
-  pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>);
-  pcl::PointCloud<PointT>::Ptr cloud_filtered (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
   pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
-  pcl::PointCloud<PointT>::Ptr cloud_filtered2 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered2 (new pcl::PointCloud<pcl::PointXYZ>);
   pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2 (new pcl::PointCloud<pcl::Normal>);
   pcl::ModelCoefficients::Ptr coefficients_plane (new pcl::ModelCoefficients), coefficients_cylinder (new pcl::ModelCoefficients);
   pcl::PointIndices::Ptr inliers_plane (new pcl::PointIndices), inliers_cylinder (new pcl::PointIndices);
 
   // Read in the cloud data
-  reader.read ("../data/recordedPC_002.pcd", *cloud);
+  reader.read ("../data/recordedPC_001.pcd", *cloud);
   std::cerr << "PointCloud has: " << cloud->size () << " data points." << std::endl;
 
   // Build a passthrough filter to remove spurious NaNs and scene background
@@ -108,7 +106,7 @@ int main ()
   extract.setNegative (false);
 
   // Write the planar inliers to disk
-  pcl::PointCloud<PointT>::Ptr cloud_plane (new pcl::PointCloud<PointT> ());
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane (new pcl::PointCloud<pcl::PointXYZ> ());
   extract.filter (*cloud_plane);
   std::cerr << "PointCloud representing the planar component: " << cloud_plane->size () << " data points." << std::endl;
   writer.write ("segmented_plane.ply", *cloud_plane, false);
@@ -140,7 +138,7 @@ int main ()
   extract.setInputCloud (cloud_filtered2);
   extract.setIndices (inliers_cylinder);
   extract.setNegative (false);
-  pcl::PointCloud<PointT>::Ptr cloud_cylinder (new pcl::PointCloud<PointT> ());
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cylinder (new pcl::PointCloud<pcl::PointXYZ> ());
   extract.filter (*cloud_cylinder);
   if (cloud_cylinder->points.empty ()) 
     std::cerr << "Can't find the cylindrical component." << std::endl;
@@ -149,6 +147,30 @@ int main ()
 	  std::cerr << "PointCloud representing the cylindrical component: " << cloud_cylinder->size () << " data points." << std::endl;
 	  writer.write ("segmented_cylinder.ply", *cloud_cylinder, false);
   }
+
+  // Compute height
+  Eigen::Vector3f axis(coefficients_cylinder->values[3],
+                        coefficients_cylinder->values[4],
+                        coefficients_cylinder->values[5]);
+  Eigen::Vector3f pt(coefficients_cylinder->values[0],
+                      coefficients_cylinder->values[1],
+                      coefficients_cylinder->values[2]);
+
+  float min_proj = std::numeric_limits<float>::max();
+  float max_proj = -std::numeric_limits<float>::max();
+  for (const auto& p : cloud_cylinder->points)
+  {
+      Eigen::Vector3f vec(p.x - pt[0], p.y - pt[1], p.z - pt[2]);
+      float proj = vec.dot(axis);
+      if (proj < min_proj) min_proj = proj;
+      if (proj > max_proj) max_proj = proj;
+  }
+
+  float height = max_proj - min_proj;
+  float radius = coefficients_cylinder->values[6];
+
+  std::cout << "Cylinder radius: " << radius << std::endl;
+  std::cout << "Cylinder height: " << height << std::endl;
     
   return (0);
 }
