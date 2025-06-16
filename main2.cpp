@@ -12,34 +12,63 @@
 #include <pcl/common/common.h>
 
 
+
+float computeBoxHeightFromPoints(
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& top_points,
+    const pcl::ModelCoefficients::Ptr& ground_plane)
+{
+    float a = ground_plane->values[0];
+    float b = ground_plane->values[1];
+    float c = ground_plane->values[2];
+    float d = ground_plane->values[3];
+
+    float normal_magnitude = std::sqrt(a*a + b*b + c*c);
+    if (normal_magnitude < 1e-6)
+        return 0.0f; // Invalid normal
+
+    float total_distance = 0.0f;
+    for (const auto& pt : top_points->points)
+    {
+        float distance = std::abs(a * pt.x + b * pt.y + c * pt.z + d) / normal_magnitude;
+        total_distance += distance;
+    }
+
+    return total_distance / static_cast<float>(top_points->size());
+}
+
 void thefunction(float& radius, float& height, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
 {
-    // Filter the input point cloud using a passthrough filter and downsampling
+    // Filter the point cloud: Points that are too distant, and downsample
     pcl::PassThrough<pcl::PointXYZ> pass;
     pcl::PointCloud<pcl::PointXYZ>::Ptr filteredCloud(new pcl::PointCloud<pcl::PointXYZ>);
-
+    
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
-    pass.setFilterLimits(0, 600.0); // CONFIG
+    pass.setFilterLimits(0, 1000.0);
     pass.filter(*filteredCloud);
-
+    
     pcl::VoxelGrid<pcl::PointXYZ> vg;
     vg.setInputCloud(filteredCloud);
-    vg.setLeafSize(5.0f, 5.0f, 5.0f); // CONFIG
+    vg.setLeafSize(4.0f, 4.0f, 4.0f); // CONFIG
     vg.filter(*filteredCloud);
-
-
+    
+    //sor.setInputCloud(filteredCloud);
+    //sor.setMeanK(30);
+    //sor.setStddevMulThresh(0.1);
+    //sor.filter(*filteredCloud);
+    
+    
     // Estimate point normals
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
     pcl::PointCloud<pcl::Normal>::Ptr cloudNormals(new pcl::PointCloud<pcl::Normal>);
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
-
+    
     ne.setSearchMethod(tree);
     ne.setInputCloud(filteredCloud);
-    ne.setKSearch(50);
+    ne.setKSearch(30);
     ne.compute(*cloudNormals);
-
-
+    
+    
     // Create the segmentation object for the planar model and set all the parameters
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> seg; 
     pcl::PointIndices::Ptr planeInliers(new pcl::PointIndices);
@@ -49,15 +78,14 @@ void thefunction(float& radius, float& height, pcl::PointCloud<pcl::PointXYZ>::P
     seg.setModelType(pcl::SACMODEL_NORMAL_PLANE);
     seg.setNormalDistanceWeight(0.7); // CONFIG
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setMaxIterations(100000);
-    seg.setDistanceThreshold(5.0); // CONFIG
+    seg.setMaxIterations(100);
+    seg.setDistanceThreshold(4.0); // CONFIG
     seg.setInputCloud(filteredCloud);
     seg.setInputNormals(cloudNormals);
-
-
+    
+    
     // Obtain the plane inliers and coefficients
     seg.segment(*planeInliers, *planeCoefficients);
-    
     
     // Extract the planar inliers from the input cloud
     pcl::ExtractIndices<pcl::PointXYZ> extract;
@@ -75,7 +103,7 @@ void thefunction(float& radius, float& height, pcl::PointCloud<pcl::PointXYZ>::P
     pcl::ExtractIndices<pcl::Normal> extractNormals;
     pcl::PointCloud<pcl::Normal>::Ptr cloudNormals2(new pcl::PointCloud<pcl::Normal>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr filteredCloud2(new pcl::PointCloud<pcl::PointXYZ>);
-
+    
     extract.setNegative(true);
     extract.filter(*filteredCloud2);
     extractNormals.setNegative(true);
@@ -83,24 +111,40 @@ void thefunction(float& radius, float& height, pcl::PointCloud<pcl::PointXYZ>::P
     extractNormals.setIndices(planeInliers);
     extractNormals.filter(*cloudNormals2);
     
+    if (planeCoefficients->values.size() < 3)
+    return;
     
     // Create the segmentation object for cylinder segmentation and set all the parameters
     seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_CYLINDER);
-    seg.setMethodType(pcl::SAC_LMEDS);
+    seg.setModelType(pcl::SACMODEL_NORMAL_PARALLEL_PLANE);
+    seg.setMethodType(pcl::SAC_RANSAC);
     seg.setNormalDistanceWeight(0.8); // CONFIG
-    seg.setMaxIterations(100000);
-    seg.setDistanceThreshold(1.0); // CONFIG
+    seg.setMaxIterations(10000);
+    seg.setDistanceThreshold(0.4); // CONFIG
     seg.setRadiusLimits(0, 100.0); // CONFIG
     seg.setInputCloud(filteredCloud2);
     seg.setInputNormals(cloudNormals2);
+            std::cout << "ss123ss" << std::endl;
+    Eigen::Vector3f normal(planeCoefficients->values[0],
+        planeCoefficients->values[1],
+        planeCoefficients->values[2]);
+        
+                std::cout << "sss23s" << std::endl;
+    // Normalize the normal vector
+    normal.normalize();
+        
+        std::cout << "ssss" << std::endl;
+    // Set this normal as the axis
+    seg.setAxis(normal);
+    //seg.setEpsAngle(pcl::deg2rad(5.0));  // Allow planes within ±5° of this direction
     
     
     // Obtain the cylinder inliers and coefficients
     pcl::PointIndices::Ptr cylinderInliers(new pcl::PointIndices);
     pcl::ModelCoefficients::Ptr cylinderCoefficients(new pcl::ModelCoefficients);
     seg.segment(*cylinderInliers, *cylinderCoefficients);
-    
+
+
     
     // Save the cylinder inliers
     pcl::PointCloud<pcl::PointXYZ>::Ptr cylinderCloud(new pcl::PointCloud<pcl::PointXYZ>());
@@ -108,82 +152,10 @@ void thefunction(float& radius, float& height, pcl::PointCloud<pcl::PointXYZ>::P
     extract.setIndices(cylinderInliers);
     extract.setNegative(false);
     extract.filter(*cylinderCloud);
-    
 
-
-    // Apply the bounding box to the original input point cloud
-    pcl::PointXYZ min_pt, max_pt;
-    pcl::getMinMax3D(*cylinderCloud, min_pt, max_pt);
-
-    pcl::CropBox<pcl::PointXYZ> crop_filter;
-    crop_filter.setInputCloud(cloud);
-
-    // Set the bounding box using min and max from the segmented cloud
-    crop_filter.setMin(Eigen::Vector4f(min_pt.x - 5.0f, min_pt.y - 5.0f, min_pt.z - 5.0f, 1.0));
-    crop_filter.setMax(Eigen::Vector4f(max_pt.x + 5.0f, max_pt.y + 5.0f, max_pt.z + 5.0f, 1.0));
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cropped(new pcl::PointCloud<pcl::PointXYZ>);
-    crop_filter.filter(*cloud_cropped);
-
-
-    // Use the cropped original cloud to calculate cylinder parameters
-    pcl::PointCloud<pcl::Normal>::Ptr cloudNormals3(new pcl::PointCloud<pcl::Normal>);
-
-    pcl::PointIndices::Ptr finalCylinderInliers(new pcl::PointIndices);
-    pcl::ModelCoefficients::Ptr finalCylinderCoefficients(new pcl::ModelCoefficients);
-    
-    //vg.setInputCloud(cloud_cropped);
-    //vg.setLeafSize(4.0f, 4.0f, 4.0f); // CONFIG
-    //vg.filter(*cloud_cropped);
-    //std::cout << "PointCloud representing the cylindrical component of the original input cloud: " << cloud_cropped->size() << " data points." << std::endl;
-    //writer.write("recordedPC_05_segmented_cylinder_original_downsample.ply", *cloud_cropped, false);
-
-    ne.setSearchMethod(tree);
-    ne.setInputCloud(cloud_cropped);
-    ne.setKSearch(30);
-    //ne.setRadiusSearch(3.0);
-    ne.compute(*cloudNormals3);
-    
-    seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_CYLINDER);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setNormalDistanceWeight(0.8); // CONFIG
-    seg.setMaxIterations(20000);
-    seg.setDistanceThreshold(1.0); // CONFIG
-    seg.setRadiusLimits(0, 100.0); // CONFIG
-    seg.setInputCloud(cloud_cropped);
-    seg.setInputNormals(cloudNormals3);
-
-    seg.segment(*finalCylinderInliers, *finalCylinderCoefficients);
-
-
-
-
-    
-    if (cylinderCoefficients->values.empty())
-        return;
-
-    // Compute height
-    Eigen::Vector3f axis(cylinderCoefficients->values[3],
-                        cylinderCoefficients->values[4],
-                        cylinderCoefficients->values[5]);
-    Eigen::Vector3f pt(cylinderCoefficients->values[0],
-                        cylinderCoefficients->values[1],
-                        cylinderCoefficients->values[2]);
-
-    float min_proj = std::numeric_limits<float>::max();
-    float max_proj = -std::numeric_limits<float>::max();
-    for (const auto& p : cylinderCloud->points)
-    {
-        Eigen::Vector3f vec(p.x - pt[0], p.y - pt[1], p.z - pt[2]);
-        float proj = vec.dot(axis);
-        if (proj < min_proj) min_proj = proj;
-        if (proj > max_proj) max_proj = proj;
-    }
-
-    height = max_proj - min_proj;
-    radius = cylinderCoefficients->values[6];
+    height = computeBoxHeightFromPoints(cylinderCloud, planeCoefficients);
 }
+
 
 
 int main()
@@ -243,10 +215,10 @@ int main()
     {
         auto videoIn = videoQueue->get<dai::ImgFrame>();
         if(videoIn == nullptr) 
-            continue;
-
+        continue;
+        
         if(cv::waitKey(1) == 'q')
-            break;
+        break;
         
         auto pcl = queue->get<dai::PointCloudData>();
         if (pcl == nullptr)
