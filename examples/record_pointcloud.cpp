@@ -42,7 +42,7 @@ int main() {
     right->build(dai::CameraBoardSocket::CAM_C);
     stereo->setSubpixel(true);
     stereo->setExtendedDisparity(false);
-    stereo->setDefaultProfilePreset(dai::node::StereoDepth::PresetMode::DEFAULT);
+    stereo->setDefaultProfilePreset(dai::node::StereoDepth::PresetMode::HIGH_DETAIL);
     stereo->setLeftRightCheck(true);
     stereo->setRectifyEdgeFillColor(0);  // black, to better see the cutout
     stereo->enableDistortionCorrection(true);
