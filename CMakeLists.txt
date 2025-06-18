@@ -18,5 +18,9 @@ set_property(TARGET cylinder_detection PROPERTY CXX_STANDARD 17)
 set_property(TARGET cylinder_detection PROPERTY CXX_STANDARD_REQUIRED ON)
 set_property(TARGET cylinder_detection PROPERTY CXX_EXTENSIONS OFF)
 
+option(BUILD_EXAMPLES "Build Examples" OFF)
+if (BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
 
 # DEPTHAI_PCL_SUPPORT

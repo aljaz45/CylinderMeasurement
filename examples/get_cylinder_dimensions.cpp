@@ -1,5 +1,3 @@
-#include <depthai/depthai.hpp>
-#include <opencv2/opencv.hpp>
 #include <pcl/io/pcd_io.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/filters/passthrough.h>
@@ -8,7 +6,6 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/surface/convex_hull.h>
-
 
 
 float computeTopPlaneHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderTopCloud,
@@ -89,17 +86,28 @@ float computeRadiusBasicFromConvexHull(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud
 }
 
 
-void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
+int main()
 {
+    // Read the input point cloud
+    pcl::PCDReader reader;
+    pcl::PLYWriter writer;
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud(new pcl::PointCloud<pcl::PointXYZ>);
+
+    reader.read("../data/recordedPC_000.pcd", *inputCloud);
+    std::cout << "Input PointCloud has: " << inputCloud->size() << " data points." << std::endl;
+
+
     // Filter the input cloud. TO DO: Statistical outlier removal can be added as well
     pcl::PassThrough<pcl::PointXYZ> passThrough;
     pcl::PointCloud<pcl::PointXYZ>::Ptr filteredCloud(new pcl::PointCloud<pcl::PointXYZ>);
 
     // Remove too distant points
-    passThrough.setInputCloud(cloud);
+    passThrough.setInputCloud(inputCloud);
     passThrough.setFilterFieldName("z");
     passThrough.setFilterLimits(0, 1000.0); // Distance set to 1 meter
     passThrough.filter(*filteredCloud);
+    std::cout << "Input PointCloud after removing distant points has: " << filteredCloud->size() << " data points." << std::endl;
 
     // Downsample the cloud
     pcl::VoxelGrid<pcl::PointXYZ> voxelGrid;
@@ -107,6 +115,9 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
     voxelGrid.setInputCloud(filteredCloud);
     voxelGrid.setLeafSize(4.0f, 4.0f, 4.0f); // CONFIG
     voxelGrid.filter(*filteredCloud);
+    std::cout << "Input PointCloud after downsampling has: " << filteredCloud->size() << " data points." << std::endl;
+    
+    writer.write("recordedPC_01_filtered.ply", *filteredCloud, false);
 
 
     // Estimate point normals
@@ -136,9 +147,6 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
 
     sacSegmentation.segment(*planeInliers, *planeCoefficients);
 
-    if (planeCoefficients->values.size() < 4)
-        return;
-
     // Get the plane normal and normalize it
     Eigen::Vector3f planeNormal(
         planeCoefficients->values[0],
@@ -158,6 +166,9 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
     pcl::PointCloud<pcl::PointXYZ>::Ptr planePointCloud(new pcl::PointCloud<pcl::PointXYZ>());
 
     extractPoints.filter(*planePointCloud);
+    std::cout << "PointCloud representing the planar component has: " << planePointCloud->size() << " data points." << std::endl;
+    
+    writer.write("recordedPC_02_1_segmented_plane.ply", *planePointCloud, false);
 
 
     // Extract what is left by removing the planar inliers
@@ -169,6 +180,7 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
     extractNormals.setInputCloud(cloudNormals);
     extractNormals.setIndices(planeInliers);
     extractNormals.filter(*cloudNormals);
+    writer.write("recordedPC_02_2_segmented_plane_remaining.ply", *filteredCloud, false);
     
 
     // Create the segmentation object for segmentation of the top of cylinder, set its parameters
@@ -196,141 +208,20 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
     extractPoints.setIndices(cylinderTopInliers);
     extractPoints.setNegative(false);
     extractPoints.filter(*cylinderTopCloud);
+    std::cout << "PointCloud representing the top of the cylinder has: " << cylinderTopCloud->size() << " data points." << std::endl;
+    
+    writer.write("recordedPC_03_segmented_cylinder.ply", *cylinderTopCloud, false);
 
 
     // Calculate the height of the cylinder
-    height = computeTopPlaneHeight(cylinderTopCloud, planeCoefficients);
+    float height = computeTopPlaneHeight(cylinderTopCloud, planeCoefficients);
+    std::cout << "The height of the given cylinder is: " << height << "mm" << std::endl;
 
 
-    // 
-    radius0 = computeRadiusBasic(cylinderTopCloud);
-    radius2 = computeRadiusBasicFromConvexHull(cylinderTopCloud);
-}
+    // Calculate the radius of the cylinder
+    float radius = computeRadiusBasic(cylinderTopCloud);
+    std::cout << "The radius of the given cylinder is: " << radius << "\n";
 
-
-
-int main()
-{
-    // Create pipeline
-    dai::Pipeline pipeline;
-
-    auto left = pipeline.create<dai::node::Camera>();
-    auto right = pipeline.create<dai::node::Camera>();
-    auto stereo = pipeline.create<dai::node::StereoDepth>();
-    auto pointcloud = pipeline.create<dai::node::PointCloud>();
-    auto color = pipeline.create<dai::node::Camera>()->build();
-    std::shared_ptr<dai::node::ImageAlign> align;
-
-    left->build(dai::CameraBoardSocket::CAM_B);
-    right->build(dai::CameraBoardSocket::CAM_C);
-    stereo->setSubpixel(true);
-    stereo->setExtendedDisparity(false);
-    stereo->setDefaultProfilePreset(dai::node::StereoDepth::PresetMode::HIGH_DETAIL);
-    stereo->setLeftRightCheck(true);
-    stereo->setRectifyEdgeFillColor(0);  // black, to better see the cutout
-    stereo->enableDistortionCorrection(true);
-    stereo->initialConfig->setLeftRightCheckThreshold(10);
-
-    left->requestOutput(std::pair<int, int>(640, 400))->link(stereo->left);
-    right->requestOutput(std::pair<int, int>(640, 400))->link(stereo->right);
-
-
-    auto platform = pipeline.getDefaultDevice()->getPlatform();
-    dai::Node::Output* colorOutput;
-    if(platform == dai::Platform::RVC4) {
-        colorOutput = color->requestOutput(std::pair<int, int>(640, 400), dai::ImgFrame::Type::RGB888i);
-        align = pipeline.create<dai::node::ImageAlign>();
-        stereo->depth.link(align->input);
-        colorOutput->link(align->inputAlignTo);
-    } else {
-        colorOutput = color->requestOutput(std::pair<int, int>(640, 400), dai::ImgFrame::Type::RGB888i, dai::ImgResizeMode::CROP, 30, true);
-        colorOutput->link(stereo->inputAlignTo);
-    }
-
-    // Video
-    auto videoQueue = colorOutput->createOutputQueue();
-
-    // Point cloud
-    stereo->depth.link(pointcloud->inputDepth);
-    auto queue = pointcloud->outputPointCloud.createOutputQueue();
-
-    auto device = pipeline.getDefaultDevice();
-    device->setIrLaserDotProjectorIntensity(0.7);
-
-    // Start pipeline
-    pipeline.start();
-
-
-    int frame_count = 0;
-    double fps = 0;
-    auto start_time = std::chrono::high_resolution_clock::now();
-    // Main loop
-    while(true) 
-    {
-        auto videoIn = videoQueue->get<dai::ImgFrame>();
-        if(videoIn == nullptr) 
-            continue;
-
-        // Increment frame count
-        frame_count++;
-
-        // Calculate FPS every 30 frames
-        if (frame_count == 3) {
-            auto end_time = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double> elapsed_time = end_time - start_time;
-            fps = frame_count / elapsed_time.count();
-            frame_count = 0;
-            start_time = end_time;
-        }
-        
-        if(cv::waitKey(1) == 'q')
-        break;
-        
-        auto pcl = queue->get<dai::PointCloudData>();
-        if (pcl == nullptr)
-        continue;
-        
-        // Fill the cloud ...   TO DO: Probably a better way to do this ...
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-        cloud->width = pcl->getWidth();
-        cloud->height = pcl->getHeight();
-        cloud->points.reserve(pcl->getPoints().size());
-        for (const auto& point : pcl->getPoints()) 
-        cloud->points.emplace_back(point.x, point.y, point.z);
-        
-        float radius0 = 0.0f;
-        float radius2 = 0.0f;
-        float height = 0.0f;
-        thefunction(radius0, radius2, height, cloud);
-        
-        
-        // Convert variables to string
-        std::stringstream ss;
-        ss << "Rad0: " << radius0;
-        std::string text = ss.str();
-
-        std::stringstream ss2;
-        ss2 << "Rad2: " << radius2 << ",   Height: " << height;
-        std::string text2 = ss2.str();
-
-        std::stringstream ss3;
-        ss3 << "Current FPS: " << fps;
-        std::string text3 = ss3.str();
-        
-        // Text properties
-        cv::Point position(0, 100);
-        cv::Point position2(0, 200);
-        int fontFace = cv::FONT_HERSHEY_SIMPLEX;
-        double fontScale = 0.8;
-        cv::Scalar fontColor(255, 255, 255); // White
-        int thickness = 2;
-        
-        // Draw text
-        cv::Mat test = videoIn->getCvFrame();
-        cv::putText(test, text, position, fontFace, fontScale, fontColor, thickness);
-        cv::putText(test, text2, position2, fontFace, fontScale, fontColor, thickness);
-        cv::putText(test, text3, cv::Point(0, 20), fontFace, fontScale, fontColor, thickness);
-
-        cv::imshow("video", test);
-    }
+    radius = computeRadiusBasicFromConvexHull(cylinderTopCloud);
+    std::cout << "The radius of the given cylinder is: " << radius << "\n";
 }
