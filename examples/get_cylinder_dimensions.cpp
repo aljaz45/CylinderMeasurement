@@ -8,7 +8,7 @@
 #include <pcl/surface/convex_hull.h>
 
 
-float computeTopPlaneHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderTopCloud,
+float computeHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderTopCloud,
     const pcl::ModelCoefficients::Ptr& groundPlane)
 {
     if (cylinderTopCloud->size() == 0 || groundPlane->values.size() < 4)
@@ -26,6 +26,7 @@ float computeTopPlaneHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderT
     float totalDistance = 0.0f;
     for (const auto& pt : cylinderTopCloud->points)
     {
+        // ax + by + cz + d
         float distance = std::abs(a * pt.x + b * pt.y + c * pt.z + d) / normalMagnitude;
         totalDistance += distance;
     }
@@ -33,56 +34,28 @@ float computeTopPlaneHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderT
     return totalDistance / static_cast<float>(cylinderTopCloud->size());
 }
 
-float computeRadiusBasic(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) 
+float computeRadius(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderTopHullCloud) 
 {
-    if (cloud->size() == 0)
+    if (cylinderTopHullCloud->points.size() < 2)
         return 0.0f;
 
-    Eigen::Vector4f centroid;
-    pcl::compute3DCentroid(*cloud, centroid);
-
-    if (centroid.size() < 3)
-        return 0.0f;
-
-    float max_dist_sq = 0.0f;
-    for (const auto& point : cloud->points) {
-        float dx = point.x - centroid[0];
-        float dy = point.y - centroid[1];
-        float dz = point.z - centroid[2];
-        float dist_sq = dx*dx + dy*dy + dz*dz;
-        if (dist_sq > max_dist_sq)
-            max_dist_sq = dist_sq;
-    }
-
-    return std::sqrt(max_dist_sq);
-}
-
-float computeRadiusBasicFromConvexHull(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) 
-{
-    if (cloud->size() == 0)
-        return 0.0f;
-
-    pcl::ConvexHull<pcl::PointXYZ> chull;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr hull(new pcl::PointCloud<pcl::PointXYZ>);
-    chull.setInputCloud(cloud);
-    chull.reconstruct(*hull);
-
-    if (hull->points.size() < 2)
-        return 0.0f;
-
-    float max_dist_sq = 0.0f;
-    for (size_t i = 0; i < hull->size(); ++i) {
-        for (size_t j = i + 1; j < hull->size(); ++j) {
-            float dx = hull->points[i].x - hull->points[j].x;
-            float dy = hull->points[i].y - hull->points[j].y;
-            float dz = hull->points[i].z - hull->points[j].z;
-            float dist_sq = dx*dx + dy*dy + dz * dz;
-            if (dist_sq > max_dist_sq)
-                max_dist_sq = dist_sq;
+    // Find the longest distance between the points - the diameter
+    float maxDistance = 0.0f;
+    for (size_t i = 0; i < cylinderTopHullCloud->size(); ++i) 
+    {
+        for (size_t j = i + 1; j < cylinderTopHullCloud->size(); ++j) 
+        {
+            float dx = cylinderTopHullCloud->points[i].x - cylinderTopHullCloud->points[j].x;
+            float dy = cylinderTopHullCloud->points[i].y - cylinderTopHullCloud->points[j].y;
+            float dz = cylinderTopHullCloud->points[i].z - cylinderTopHullCloud->points[j].z;
+            float distance = dx * dx + dy * dy + dz * dz;
+            if (distance > maxDistance)
+                maxDistance = distance;
         }
     }
 
-    return std::sqrt(max_dist_sq) / 2.0f; // Approximate radius
+    // Return the radius
+    return std::sqrt(maxDistance) / 2.0f;
 }
 
 
@@ -131,7 +104,7 @@ int main()
     normalEstimation.compute(*cloudNormals);
 
 
-    // Create the segmentation object for the planar model and set its the parameters
+    // Create the segmentation object for the planar model and set its parameters
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> sacSegmentation; 
     pcl::PointIndices::Ptr planeInliers(new pcl::PointIndices);
     pcl::ModelCoefficients::Ptr planeCoefficients(new pcl::ModelCoefficients);
@@ -210,18 +183,25 @@ int main()
     extractPoints.filter(*cylinderTopCloud);
     std::cout << "PointCloud representing the top of the cylinder has: " << cylinderTopCloud->size() << " data points." << std::endl;
     
-    writer.write("recordedPC_03_segmented_cylinder.ply", *cylinderTopCloud, false);
+    writer.write("recordedPC_03_segmented_cylinder_top.ply", *cylinderTopCloud, false);
+
+
+    // Get the convex hull of the cylinder top and reconstruct it to a point cloud
+    pcl::ConvexHull<pcl::PointXYZ> convexHull;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr hullCloud(new pcl::PointCloud<pcl::PointXYZ>);
+    convexHull.setInputCloud(cylinderTopCloud);
+    convexHull.reconstruct(*hullCloud);
+    std::cout << "PointCloud representing the hull of the top of the cylinder has: " << hullCloud->size() << " data points." << std::endl;
+    
+    writer.write("recordedPC_04_segmented_cylinder_top_hull.ply", *hullCloud, false);
 
 
     // Calculate the height of the cylinder
-    float height = computeTopPlaneHeight(cylinderTopCloud, planeCoefficients);
+    float height = computeHeight(cylinderTopCloud, planeCoefficients);
     std::cout << "The height of the given cylinder is: " << height << "mm" << std::endl;
 
 
     // Calculate the radius of the cylinder
-    float radius = computeRadiusBasic(cylinderTopCloud);
-    std::cout << "The radius of the given cylinder is: " << radius << "\n";
-
-    radius = computeRadiusBasicFromConvexHull(cylinderTopCloud);
+    float radius = computeRadius(hullCloud);
     std::cout << "The radius of the given cylinder is: " << radius << "\n";
 }
