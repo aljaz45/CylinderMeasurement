@@ -10,7 +10,6 @@ include_directories(${PCL_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
-# For use_pcl setting, examples use:   depthai::all  &  depthai::opencv if off
 add_executable(cylinder_detection main.cpp)
 target_link_libraries(cylinder_detection PRIVATE depthai::core ${OpenCV_LIBS} Open3D::Open3D ${PCL_LIBRARIES})
 
@@ -22,5 +21,3 @@ option(BUILD_EXAMPLES "Build Examples" OFF)
 if (BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
-
-# DEPTHAI_PCL_SUPPORT
