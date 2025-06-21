@@ -97,7 +97,7 @@ int main() {
             if (pcl == nullptr)
                 continue;
 
-            // Fill the cloud ...   TO DO: Probably a better way to do this ...
+            // Fill the cloud. TO DO: Probably a better way to do this ...
             pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
             cloud->width = pcl->getWidth();
             cloud->height = pcl->getHeight();

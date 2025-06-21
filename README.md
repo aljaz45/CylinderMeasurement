@@ -114,3 +114,5 @@ point cloud after applying a convex hull are shown in the bottom two images.
 - Challenges with the shapes
 
 - higher fps when smaller cloud!
+
+- add bounding box for better presentation, improve presentation
