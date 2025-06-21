@@ -68,7 +68,10 @@ The points of this polygon approximating the boundary of the top of the cylinder
 - This is done by finding the maximum distance between pairs of these points - the diameter
 
 ### 6. Filtering the measured values:
--
+- When measuring the dimensions of the cylinder in real time an additional filtering or smoothing technique
+is added, as certain outlier measurements or spikes can cause a huge jump in the measured results for one frame. To avoid this a median filter is used on the measured values, so the median
+value of the last n values is used. The result of this is that spikes or outliers are never
+the median value before being removed from the last n values, making them irrelevant
 
 
 &nbsp;
@@ -109,3 +112,5 @@ point cloud after applying a convex hull are shown in the bottom two images.
 - What about multiple cylinders? Limitations?
 
 - Challenges with the shapes
+
+- higher fps when smaller cloud!

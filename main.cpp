@@ -10,8 +10,7 @@
 #include <pcl/surface/convex_hull.h>
 
 
-
-float computeTopPlaneHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderTopCloud,
+float computeHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderTopCloud,
     const pcl::ModelCoefficients::Ptr& groundPlane)
 {
     if (cylinderTopCloud->size() == 0 || groundPlane->values.size() < 4)
@@ -29,6 +28,7 @@ float computeTopPlaneHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderT
     float totalDistance = 0.0f;
     for (const auto& pt : cylinderTopCloud->points)
     {
+        // ax + by + cz + d
         float distance = std::abs(a * pt.x + b * pt.y + c * pt.z + d) / normalMagnitude;
         totalDistance += distance;
     }
@@ -36,60 +36,31 @@ float computeTopPlaneHeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderT
     return totalDistance / static_cast<float>(cylinderTopCloud->size());
 }
 
-float computeRadiusBasic(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) 
+float computeRadius(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cylinderTopHullCloud) 
 {
-    if (cloud->size() == 0)
+    if (cylinderTopHullCloud->points.size() < 2)
         return 0.0f;
 
-    Eigen::Vector4f centroid;
-    pcl::compute3DCentroid(*cloud, centroid);
-
-    if (centroid.size() < 3)
-        return 0.0f;
-
-    float max_dist_sq = 0.0f;
-    for (const auto& point : cloud->points) {
-        float dx = point.x - centroid[0];
-        float dy = point.y - centroid[1];
-        float dz = point.z - centroid[2];
-        float dist_sq = dx*dx + dy*dy + dz*dz;
-        if (dist_sq > max_dist_sq)
-            max_dist_sq = dist_sq;
-    }
-
-    return std::sqrt(max_dist_sq);
-}
-
-float computeRadiusBasicFromConvexHull(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) 
-{
-    if (cloud->size() == 0)
-        return 0.0f;
-
-    pcl::ConvexHull<pcl::PointXYZ> chull;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr hull(new pcl::PointCloud<pcl::PointXYZ>);
-    chull.setInputCloud(cloud);
-    chull.reconstruct(*hull);
-
-    if (hull->points.size() < 2)
-        return 0.0f;
-
-    float max_dist_sq = 0.0f;
-    for (size_t i = 0; i < hull->size(); ++i) {
-        for (size_t j = i + 1; j < hull->size(); ++j) {
-            float dx = hull->points[i].x - hull->points[j].x;
-            float dy = hull->points[i].y - hull->points[j].y;
-            float dz = hull->points[i].z - hull->points[j].z;
-            float dist_sq = dx*dx + dy*dy + dz * dz;
-            if (dist_sq > max_dist_sq)
-                max_dist_sq = dist_sq;
+    // Find the longest distance between the points - the diameter
+    float maxDistance = 0.0f;
+    for (size_t i = 0; i < cylinderTopHullCloud->size(); ++i) 
+    {
+        for (size_t j = i + 1; j < cylinderTopHullCloud->size(); ++j) 
+        {
+            float dx = cylinderTopHullCloud->points[i].x - cylinderTopHullCloud->points[j].x;
+            float dy = cylinderTopHullCloud->points[i].y - cylinderTopHullCloud->points[j].y;
+            float dz = cylinderTopHullCloud->points[i].z - cylinderTopHullCloud->points[j].z;
+            float distance = dx * dx + dy * dy + dz * dz;
+            if (distance > maxDistance)
+                maxDistance = distance;
         }
     }
 
-    return std::sqrt(max_dist_sq) / 2.0f; // Approximate radius
+    // Return the radius
+    return std::sqrt(maxDistance) / 2.0f;
 }
 
-
-void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
+void computeCylinderDimensions(float& radius, float& height, pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
 {
     // Filter the input cloud. TO DO: Statistical outlier removal can be added as well
     pcl::PassThrough<pcl::PointXYZ> passThrough;
@@ -130,12 +101,13 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
     sacSegmentation.setNormalDistanceWeight(0.7); // CONFIG
     sacSegmentation.setMethodType(pcl::SAC_RANSAC); // CONFIG
     sacSegmentation.setMaxIterations(100);
-    sacSegmentation.setDistanceThreshold(4.0); // CONFIG
+    sacSegmentation.setDistanceThreshold(3.5); // CONFIG
     sacSegmentation.setInputCloud(filteredCloud);
     sacSegmentation.setInputNormals(cloudNormals);
 
     sacSegmentation.segment(*planeInliers, *planeCoefficients);
 
+    // Return in case of an invalid plane coefficients
     if (planeCoefficients->values.size() < 4)
         return;
 
@@ -176,7 +148,7 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
     sacSegmentation.setModelType(pcl::SACMODEL_NORMAL_PARALLEL_PLANE);
     sacSegmentation.setNormalDistanceWeight(0.8); // CONFIG
     sacSegmentation.setMethodType(pcl::SAC_RANSAC); // CONFIG
-    sacSegmentation.setMaxIterations(10000);
+    sacSegmentation.setMaxIterations(3000);
     sacSegmentation.setDistanceThreshold(0.4); // CONFIG
     sacSegmentation.setInputCloud(filteredCloud);
     sacSegmentation.setInputNormals(cloudNormals);
@@ -198,15 +170,36 @@ void thefunction(float& radius0, float& radius2, float& height, pcl::PointCloud<
     extractPoints.filter(*cylinderTopCloud);
 
 
+    // Get the convex hull of the cylinder top and reconstruct it to a point cloud
+    pcl::ConvexHull<pcl::PointXYZ> convexHull;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr hullCloud(new pcl::PointCloud<pcl::PointXYZ>);
+    convexHull.setInputCloud(cylinderTopCloud);
+    convexHull.reconstruct(*hullCloud);
+
+
     // Calculate the height of the cylinder
-    height = computeTopPlaneHeight(cylinderTopCloud, planeCoefficients);
+    height = computeHeight(cylinderTopCloud, planeCoefficients);
 
-
-    // 
-    radius0 = computeRadiusBasic(cylinderTopCloud);
-    radius2 = computeRadiusBasicFromConvexHull(cylinderTopCloud);
+    // Calculate the radius of the cylinder
+    radius = computeRadius(hullCloud);
 }
 
+float updateMedianFilter(std::deque<float>& measuredValues, float measurement, size_t maxMeasurements)
+{
+    measuredValues.push_back(measurement);
+    if (measuredValues.size() > maxMeasurements)
+        measuredValues.pop_front();
+
+    std::vector<double> sortedValues(measuredValues.begin(), measuredValues.end());
+    std::sort(sortedValues.begin(), sortedValues.end());
+    size_t medianIndex = sortedValues.size() / 2;
+
+    // Average the middle elements in case of even number of measurements
+    if (sortedValues.size() % 2 == 0)
+        return (sortedValues[medianIndex - 1] + sortedValues[medianIndex]) / 2.0;
+    else
+        return sortedValues[medianIndex];
+}
 
 
 int main()
@@ -214,6 +207,7 @@ int main()
     // Create pipeline
     dai::Pipeline pipeline;
 
+    // Create nodes
     auto left = pipeline.create<dai::node::Camera>();
     auto right = pipeline.create<dai::node::Camera>();
     auto stereo = pipeline.create<dai::node::StereoDepth>();
@@ -221,6 +215,7 @@ int main()
     auto color = pipeline.create<dai::node::Camera>()->build();
     std::shared_ptr<dai::node::ImageAlign> align;
 
+    // Build and link nodes
     left->build(dai::CameraBoardSocket::CAM_B);
     right->build(dai::CameraBoardSocket::CAM_C);
     stereo->setSubpixel(true);
@@ -261,76 +256,71 @@ int main()
     pipeline.start();
 
 
-    int frame_count = 0;
     double fps = 0;
-    auto start_time = std::chrono::high_resolution_clock::now();
-    // Main loop
+    int frameCount = 0;
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    size_t numberOfValues = 10;
+    std::deque<float> measuredValuesHeight;
+    std::deque<float> measuredValuesRadius;
+
+
     while(true) 
     {
+        if(cv::waitKey(1) == 'q')
+            break;
+
         auto videoIn = videoQueue->get<dai::ImgFrame>();
         if(videoIn == nullptr) 
             continue;
 
-        // Increment frame count
-        frame_count++;
+        auto pointCloudData = queue->get<dai::PointCloudData>();
+        if (pointCloudData == nullptr)
+            continue;
 
-        // Calculate FPS every 30 frames
-        if (frame_count == 3) {
-            auto end_time = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double> elapsed_time = end_time - start_time;
-            fps = frame_count / elapsed_time.count();
-            frame_count = 0;
-            start_time = end_time;
-        }
-        
-        if(cv::waitKey(1) == 'q')
-        break;
-        
-        auto pcl = queue->get<dai::PointCloudData>();
-        if (pcl == nullptr)
-        continue;
-        
-        // Fill the cloud ...   TO DO: Probably a better way to do this ...
+        // Fill the cloud. TO DO: Probably a better way to do this ...
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-        cloud->width = pcl->getWidth();
-        cloud->height = pcl->getHeight();
-        cloud->points.reserve(pcl->getPoints().size());
-        for (const auto& point : pcl->getPoints()) 
-        cloud->points.emplace_back(point.x, point.y, point.z);
+        cloud->width = pointCloudData->getWidth();
+        cloud->height = pointCloudData->getHeight();
+        cloud->points.reserve(pointCloudData->getPoints().size());
+        for (const auto& point : pointCloudData->getPoints()) 
+            cloud->points.emplace_back(point.x, point.y, point.z);
         
-        float radius0 = 0.0f;
-        float radius2 = 0.0f;
+        // Get the cylinder dimensions
         float height = 0.0f;
-        thefunction(radius0, radius2, height, cloud);
+        float radius = 0.0f;
+        computeCylinderDimensions(radius, height, cloud);
         
-        
-        // Convert variables to string
-        std::stringstream ss;
-        ss << "Rad0: " << radius0;
-        std::string text = ss.str();
+        height = updateMedianFilter(measuredValuesHeight, height, numberOfValues);
+        radius = updateMedianFilter(measuredValuesRadius, radius, numberOfValues);
+            
+            
+        // Calculate FPS (every 3 frames)
+        frameCount++;
+        if (frameCount == 3) 
+        {
+            auto endTime = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> elapsedTime = endTime - startTime;
+            fps = frameCount / elapsedTime.count();
 
-        std::stringstream ss2;
-        ss2 << "Rad2: " << radius2 << ",   Height: " << height;
-        std::string text2 = ss2.str();
+            frameCount = 0;
+            startTime = endTime;
+        }
 
-        std::stringstream ss3;
-        ss3 << "Current FPS: " << fps;
-        std::string text3 = ss3.str();
         
-        // Text properties
-        cv::Point position(0, 100);
-        cv::Point position2(0, 200);
-        int fontFace = cv::FONT_HERSHEY_SIMPLEX;
-        double fontScale = 0.8;
-        cv::Scalar fontColor(255, 255, 255); // White
-        int thickness = 2;
-        
-        // Draw text
-        cv::Mat test = videoIn->getCvFrame();
-        cv::putText(test, text, position, fontFace, fontScale, fontColor, thickness);
-        cv::putText(test, text2, position2, fontFace, fontScale, fontColor, thickness);
-        cv::putText(test, text3, cv::Point(0, 20), fontFace, fontScale, fontColor, thickness);
+        // Display the FPS and measurement results
+        std::stringstream stringStream;
+        stringStream << "Radius: " << std::roundf(radius) << " mm   Height: " << std::roundf(height) << " mm";
+        std::string measurementText = stringStream.str();
 
-        cv::imshow("video", test);
+        stringStream.str("");
+        stringStream << "Current FPS: " << fps;
+        std::string fpsText = stringStream.str();
+        
+        cv::Mat currentFrame = videoIn->getCvFrame();
+        cv::putText(currentFrame, measurementText, cv::Point(100, 350), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 255), 2);
+        cv::putText(currentFrame, fpsText, cv::Point(0, 24), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 255), 2);
+
+        cv::imshow("video", currentFrame);
     }
 }
