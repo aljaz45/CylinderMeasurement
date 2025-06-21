@@ -106,13 +106,26 @@ point cloud after applying a convex hull are shown in the bottom two images.
 ---
 
 
-## Results, challenges and possible improvements:
-- Results are ...
-- To achieve a more robust cylinder segmentation use NN
-- What about multiple cylinders? Limitations?
+## Results, limitations and possible improvements:
+### Results:
+- Results are very decent, with the measurements usually being off for up to 2 milimeters in a 
+static and controlled environment
+- The performance of the algorithm - its FPS - is directly influenced by the size of the recorded cloud, 
+naturally the FPS is improved with the decreasing size of the point cloud, such as when measuring 
+the object from a closer point. Because of this, it is important to note, that the FPS in the example 
+above could be greatly improved if the internal config of the camera (range threshold filtering)
+would be set. This is usually done when a region of interest is known and constant. As such filtering
+was not set for the case above, the FPS remained only at around 6
+- The results can vary slightly due to the imperfect nature of the tested objects (such as an uneven 
+top plane, a border which is higher than the top plane, or a top which is wider than the rest of 
+the cylinder)
 
-- Challenges with the shapes
+### Limitations:
+- Currently the algorithm is only capable of detecting a single cylinder on a flat surface
 
-- higher fps when smaller cloud!
-
-- add bounding box for better presentation, improve presentation
+### Possible improvements:
+- To achieve a more robust cylinder segmentation, a neural network could be used for this step. This
+would potentially allow a multi cylinder detection, by first segmenting the input point cloud into 
+smaller regions, on which the current approach could be used individually
+- Improving the presentation by adding bounding boxes of the detected cylinders on the video
+stream, as well as updating the look of the resulting measurements

@@ -226,6 +226,10 @@ int main()
     stereo->enableDistortionCorrection(true);
     stereo->initialConfig->setLeftRightCheckThreshold(10);
 
+    // Set the threshold if a constant region of interest is used 
+    //stereo->initialConfig->postProcessing.thresholdFilter.minRange = 300;
+    //stereo->initialConfig->postProcessing.thresholdFilter.maxRange = 600;
+
     left->requestOutput(std::pair<int, int>(640, 400))->link(stereo->left);
     right->requestOutput(std::pair<int, int>(640, 400))->link(stereo->right);
 
