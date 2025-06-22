@@ -1,8 +1,8 @@
 # Cylinder Dimensions Measurement
 
-## Software and hardware used:
+## Software and Hardware Used:
 - Luxonis' DepthAI v3 (https://github.com/luxonis/depthai-core/tree/v3_develop) and Luxonis' Oak D PRO stereo depth camera
-- OpenCV v4.6.
+- OpenCV v4.6
 - Point Cloud Library v1.14.0
 
 
@@ -10,68 +10,70 @@
 ---
 
 
-## Project steps:
-### 1. Setup:
-- Cloned, built and installed DepthAI v3 
-- Installed other dependencies used, such as OpenCV, Open3D, Point Cloud Library
-- CMake project setup
+## Project Overview:
+### 1. Environment Setup:
+- Cloned, built and installed DepthAI v3.
+- Installed other dependencies, such as OpenCV, Open3D and the Point Cloud Library.
+- Configured the project using CMake.
 
-### 2. Saving a point cloud to a file using DepthAI and Oak camera:
-- Expanded the visualizer_rgbd.cpp example (provided in the DepthAI examples folder) with the functionality of saving a
-pointcloud to a file with a corresponding color image, by pressing a keyboard button
-- Created a dataset of point cloud examples for three different cylinders, recorded from different angles 
-(stored in the data folder of the repository)
+### 2. Point Cloud Capturing and Saving:
+- Extended the visualizer_rgbd.cpp example from the DepthAI examples with the functionality of capturing and
+saving point clouds to a file with the corresponding color image, by pressing a keyboard button.
+- Collected a dataset consisting of point clouds for three different cylinders, recorded from multiple angles
+and stored in the project’s data directory.
 
-### 3. Cylinder segmentation and measurement:
-- Developed the cylinder segmentation and measurement algorithm, using stored point clouds as inputs for 
-quicker testing and development
+### 3. Cylinder Segmentation and Measurement:
+- Developed a cylinder segmentation and measurement algorithm, using stored point clouds as inputs for 
+quicker testing and development.
 - Development of a real time segmentation and measurement application, with cylinder dimensions being 
-displayed in the camera stream
-- PCL library is used for most operations concerning point clouds
+displayed in the camera feed.
+- Utilized the PCL library for core point cloud processing operations.
 
-### 4. Finishing touches 
-- Minor optimizations, code cleanup, writing of the report
+### 4. Finishing Touches:
+- Minor optimizations, code cleanup, documentation of the project.
 
 
 &nbsp;
 ---
 
 
-## Approach used:
-### 1. Filtering and downsampling the input cloud:
-- Start by filtering the points that are too distant, in my case I have chosen 1 meter as the cut off distance
-- Downsample the points with a voxel grid. This reduces the number of points while keeping enough information about
- the input cloud
+## Approach Used:
+### 1. Filtering and Downsampling the Input Cloud:
+- Points beyond a specified range are filtered out. In this case,
+a cutoff distance of 1 meter was used.
+- The point cloud is downsampled using a voxel grid, which reduces the number of points while preserving
+the overall structure and geometry necessary for accurate analysis.
 
-### 2. Determine the normals, used for segmentation:
-- The normals are used in the segmentation process, where their weight is determined as a parameter
+### 2. Normal Estimation:
+- Surface normals are estimated for each point in the cloud. These normals are essential for the later
+RANSAC-based segmentation steps, with their influence adjustable via a weight parameter.
 
-### 3. Find the ground plane:
-- Ransac is used to find the ground plane. I have used a distance threshold of 4-5mm to ensure that most of the time, 
-all of the points which are a part of the ground plane are found. As most of the points in the filtered point 
-cloud belong to the ground plane, I use ransac with a low number of iterations. This speeds up the process, while still
- ensuring quality results
-- The coefficients of the ground plane are determined and the points belonging to it are removed from the pointcloud
+### 3. Ground Plane Detection:
+- The ground plane is extracted using the RANSAC (Random Sample Consensus) algorithm. A distance threshold of 4–5 mm
+is used to ensure that most of the points which are the ground plane inliers are found.
+- Given that most of the input cloud's points lie on the ground, a low number of iterations is sufficient to find
+the ground plane, which speeds up processing without sacrificing accuracy.
+- Once done, both the plane coefficients and the corresponding inlier points are extracted. The ground plane points are then removed from the point cloud to isolate objects of interest.
 
-### 4. Determine the parallel plane:
-- Another ransac method is used on the point cloud's remaining points. This time we are looking for a parallel plane (the
- top of the cylinder)
-- This time the number of iterations is much greater, while the distance threshold for points is much lower. This
+### 4. Detection of the Top Plane (Parallel to Ground):
+- A second RANSAC is applied to the remaining points to detect the top plane of the cylinder, assumed
+to be roughly parallel to the ground.
+- This step uses a higher iteration count and a smaller distance threshold. This
  contributes to a much more precise selection of points, which is important for later measurements
 
-### 5. Measuring the dimensions of the cylinder:
-- The precise height of the cylinder is determined by calculating the average perpendicular distance of the points 
-that make up the top of the cylinder to the ground plane
-- To determine the radius of the cylinder we first calculate the convex hull of the top of the cylinder.
-This determines the polygon which fully and tightly encloses the points in the top of the cloud. 
-The points of this polygon approximating the boundary of the top of the cylinder and can be used to determine the radius
-- This is done by finding the maximum distance between pairs of these points - the diameter
+### 5. Cylinder Dimension Measurement:
+- Height is calculated as the average perpendicular distance from the points on the top plane to the
+previously detected ground plane.
+- To determine the radius of the cylinder, the top plane points are used to compute their convex hull, forming
+a tight 2D boundary. This determines the polygon which fully encloses the points of the top of the cloud. 
+- The maximum distance between any two points on the convex hull is used to estimate the diameter of the
+cylinder, from which the radius is derived.
 
-### 6. Filtering the measured values:
-- When measuring the dimensions of the cylinder in real time an additional filtering or smoothing technique
-is added, as certain outlier measurements or spikes can cause a huge jump in the measured results for one frame. To avoid this a median filter is used on the measured values, so the median
-value of the last n values is used. The result of this is that spikes or outliers are never
-the median value before being removed from the last n values, making them irrelevant
+### 6. Real-Time Measurement Filtering:
+- To ensure measurement stability in real-time applications, a median filter is applied to the computed dimensions.
+- This filter uses the median of the last n measurements, effectively removing outliers or spikes
+caused by noise or segmentation errors.
+- This approach ensures smooth, reliable readings frame-to-frame.
 
 
 &nbsp;
@@ -79,53 +81,67 @@ the median value before being removed from the last n values, making them irrele
 
 
 ## Example:
-- Here is an example of the used approach. First image represents the color image of the object recorded.
-This is followed by the point cloud generated using DepthAI and Luxonis' Oak D PRO stereo depth camera. The next 
-image represents the input point cloud after filtering and downsampling. The result of ground plane segmentation is next, 
-which results in a ground plane point cloud and the cylinder point cloud. Finally the top plane of the cylinder and its 
-point cloud after applying a convex hull are shown in the bottom two images.
+- Here is an example of how the used approach works. The first image represents the color image of the
+object which was recorded.
+- This is followed by the corresponding point cloud captured using DepthAI and Luxonis' Oak D PRO stereo depth camera.
+- The next image represents the input point cloud after filtering and downsampling.
+- The result of the ground plane segmentation is next, which results in a ground plane point cloud and the
+cylinder point cloud.
+- Finally the top plane of the cylinder and the point cloud representing its convex hull
+are shown in the bottom two images.
 
 &nbsp;
 
-<img src="report/report_example00.jpg" width="640" height="400">
+<p align="center">
+  <img width="640" height="400" src="report/report_example00.jpg">
+</p>
 
-<img src="report/report_example01.png" width="403" height="316">
-<img src="report/report_example02.png" width="403" height="316">
-<img src="report/report_example03.png" width="403" height="316">
-<img src="report/report_example04.png" width="403" height="316">
-<img src="report/report_example05.png" width="403" height="316">
-<img src="report/report_example06.png" width="403" height="316">
+<p>
+    <img width="403" height="316" src="report/report_example01.png">
+    <img width="403" height="316" src="report/report_example02.png">
+</p>
+
+<p>
+    <img width="403" height="316" src="report/report_example03.png">
+    <img width="403" height="316" src="report/report_example04.png">
+</p>
+
+<p>
+    <img width="403" height="316" src="report/report_example05.png">
+    <img width="403" height="316" src="report/report_example06.png">
+</p>
 
 &nbsp;
 
-- Here is an example of the real time cylinder dimensions measurement:
+- Here is an example of the real-time cylinder measurement:
 
-<img src="report/cylinder_example_short.gif" width="640" height="360">
+<p align="center">
+  <img width="640" height="360" src="report/cylinder_example_short.gif">
+</p>
 
 &nbsp;
 ---
 
 
-## Results, limitations and possible improvements:
+## Results, Limitations and Possible Improvements:
 ### Results:
-- Results are very decent, with the measurements usually being off for up to 2 milimeters in a 
-static and controlled environment
-- The performance of the algorithm - its FPS - is directly influenced by the size of the recorded cloud, 
-naturally the FPS is improved with the decreasing size of the point cloud, such as when measuring 
-the object from a closer point. Because of this, it is important to note, that the FPS in the example 
-above could be greatly improved if the internal config of the camera (range threshold filtering)
-would be set. This is usually done when a region of interest is known and constant. As such filtering
-was not set for the case above, the FPS remained only at around 6
+- The algorithm achieves high accuracy, with measurement errors typically within ±2 millimeters under static
+and controlled conditions.
+- Performance (frames per second) is directly affected by the size of the point cloud. Smaller clouds such as
+those generated when capturing from a closer distance result in higher FPS. Because of this, it is important
+to note, that the FPS in the example above could be greatly improved if the internal configuration of the camera
+(range threshold filtering) would be set. Such filtering is usually used when the region of interest is known
+and fixed and can significantly reduce point cloud size and improve performance.
 - The results can vary slightly due to the imperfect nature of the tested objects (such as an uneven 
-top plane, a border which is higher than the top plane, or a top which is wider than the rest of 
-the cylinder)
+top plane, raised edges which are higher than the actual top plane or a top which is wider than the rest of 
+the cylinder).
 
 ### Limitations:
-- Currently the algorithm is only capable of detecting a single cylinder on a flat surface
+- The current implementation is limited to detecting a single cylinder placed on a flat surface.
 
-### Possible improvements:
-- To achieve a more robust cylinder segmentation, a neural network could be used for this step. This
-would potentially allow a multi cylinder detection, by first segmenting the input point cloud into 
-smaller regions, on which the current approach could be used individually
+### Possible Improvements:
+- Multi cylinder detection could be enabled by introducing a neural network based segmentation step. This could
+identify and separate regions of interest, allowing the current approach to be applied to each region
+individually. Such segmentation step could provide a more robust segmentation even in single cylinder situations.
 - Improving the presentation by adding bounding boxes of the detected cylinders on the video
-stream, as well as updating the look of the resulting measurements
+feed, as well as updating the look of the resulting measurements.
